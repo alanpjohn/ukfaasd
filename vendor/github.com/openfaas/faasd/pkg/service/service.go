@@ -19,7 +19,7 @@ import (
 )
 
 // dockerConfigDir contains "config.json"
-const dockerConfigDir = "/var/lib/ukfaasd/.docker/"
+const dockerConfigDir = "/var/lib/faasd/.docker/"
 
 // Remove removes a container
 func Remove(ctx context.Context, client *containerd.Client, name string) error {

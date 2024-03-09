@@ -49,6 +49,7 @@ func copyFileInfo(fi os.FileInfo, src, name string) error {
 	secInfo, err := windows.GetNamedSecurityInfo(
 		src, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+
 	if err != nil {
 		return err
 	}
@@ -67,6 +68,7 @@ func copyFileInfo(fi os.FileInfo, src, name string) error {
 		name, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION,
 		sid, nil, dacl, nil); err != nil {
+
 		return err
 	}
 	return nil

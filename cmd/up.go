@@ -10,22 +10,23 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pkg/errors"
-	"github.com/sethvargo/go-password/password"
-	"github.com/spf13/cobra"
-	flag "github.com/spf13/pflag"
-
 	units "github.com/docker/go-units"
 	faasd "github.com/openfaas/faasd/pkg"
+	"github.com/pkg/errors"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
-// upConfig are the CLI flags used by the `faasd up` command to deploy the faasd service
+// ukfaaswd stores the directory where all ukfaas binaries and config files are stored
+const ukfaaswd = "/var/lib/ukfaasd"
+
+// upConfig are the CLI flags used by the `ukfaas up` command to deploy the openfaas gateway service
 type upConfig struct {
 	// composeFilePath is the path to the compose file specifying the faasd service configuration
 	// See https://compose-spec.io/ for more information about the spec,
 	//
 	// currently, this must be the name of a file in workingDir, which is set to the value of
-	// `faasdwd = /var/lib/faasd`
+	// `ukfaasdwd = /var/lib/ukfaasd`
 	composeFilePath string
 
 	// working directory to assume the compose file is in, should be faasdwd.
@@ -37,133 +38,93 @@ func init() {
 	configureUpFlags(upCmd.Flags())
 }
 
+// The up command starts the openfaas gateway with prometheus. It reuses components from https://github.com/openfaas/faasd
+// as both ukfaasd and faasd as single node openfaas providers. In the future, as ukfaasd evolves to support multi-node
+// infrasturcture, we will move away from faasd.
 var upCmd = &cobra.Command{
 	Use:   "up",
-	Short: "Start faasd",
-	RunE:  runUp,
-}
-
-func runUp(cmd *cobra.Command, _ []string) error {
-
-	printVersion()
-
-	cfg, err := parseUpFlags(cmd)
-	if err != nil {
-		return err
-	}
-
-	services, err := loadServiceDefinition(cfg)
-	if err != nil {
-		return err
-	}
-
-	start := time.Now()
-	supervisor, err := faasd.NewSupervisor("/run/containerd/containerd.sock")
-	if err != nil {
-		return err
-	}
-
-	log.Printf("Supervisor created in: %s\n", units.HumanDuration(time.Since(start)))
-
-	start = time.Now()
-	if err := supervisor.Start(services); err != nil {
-		return err
-	}
-	defer supervisor.Close()
-
-	log.Printf("Supervisor init done in: %s\n", units.HumanDuration(time.Since(start)))
-
-	shutdownTimeout := time.Second * 1
-	timeout := time.Second * 60
-
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
-
-		log.Printf("faasd: waiting for SIGTERM or SIGINT\n")
-		<-sig
-
-		log.Printf("Signal received.. shutting down server in %s\n", shutdownTimeout.String())
-		err := supervisor.Remove(services)
+	Short: "Start OpenFaaS gateway",
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		cfg, err := parseUpFlags(cmd)
 		if err != nil {
-			fmt.Println(err)
+			return err
 		}
 
-		// TODO: close proxies
-		time.AfterFunc(shutdownTimeout, func() {
-			wg.Done()
-		})
-	}()
-
-	localResolver := faasd.NewLocalResolver(path.Join(cfg.workingDir, "hosts"))
-	go localResolver.Start()
-
-	proxies := map[uint32]*faasd.Proxy{}
-	for _, svc := range services {
-		for _, port := range svc.Ports {
-
-			listenPort := port.Port
-			if _, ok := proxies[listenPort]; ok {
-				return fmt.Errorf("port %d already allocated", listenPort)
-			}
-
-			hostIP := "0.0.0.0"
-			if len(port.HostIP) > 0 {
-				hostIP = port.HostIP
-			}
-
-			upstream := fmt.Sprintf("%s:%d", svc.Name, port.TargetPort)
-			proxies[listenPort] = faasd.NewProxy(upstream, listenPort, hostIP, timeout, localResolver)
+		services, err := loadServiceDefinition(cfg)
+		if err != nil {
+			return err
 		}
-	}
 
-	// TODO: track proxies for later cancellation when receiving sigint/term
-	for _, v := range proxies {
-		go v.Start()
-	}
+		start := time.Now()
+		supervisor, err := faasd.NewSupervisor("/run/containerd/containerd.sock")
+		if err != nil {
+			return err
+		}
 
-	wg.Wait()
-	return nil
-}
+		log.Printf("Supervisor created in: %s\n", units.HumanDuration(time.Since(start)))
 
-func makeBasicAuthFiles(wd string) error {
+		start = time.Now()
+		if err := supervisor.Start(services); err != nil {
+			return err
+		}
+		defer supervisor.Close()
 
-	pwdFile := path.Join(wd, "basic-auth-password")
-	authPassword, err := password.Generate(63, 10, 0, false, true)
+		log.Printf("Supervisor init done in: %s\n", units.HumanDuration(time.Since(start)))
 
-	if err != nil {
-		return err
-	}
+		shutdownTimeout := time.Second * 1
+		timeout := time.Second * 60
 
-	err = makeFile(pwdFile, authPassword)
-	if err != nil {
-		return err
-	}
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			sig := make(chan os.Signal, 1)
+			signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 
-	userFile := path.Join(wd, "basic-auth-user")
-	err = makeFile(userFile, "admin")
-	if err != nil {
-		return err
-	}
+			log.Printf("faasd: waiting for SIGTERM or SIGINT\n")
+			<-sig
 
-	return nil
-}
+			log.Printf("Signal received.. shutting down server in %s\n", shutdownTimeout.String())
+			err := supervisor.Remove(services)
+			if err != nil {
+				fmt.Println(err)
+			}
 
-// makeFile will create a file with the specified content if it does not exist yet.
-// if the file already exists, the method is a noop.
-func makeFile(filePath, fileContents string) error {
-	_, err := os.Stat(filePath)
-	if err == nil {
-		log.Printf("File exists: %q\n", filePath)
+			// TODO: close proxies
+			time.AfterFunc(shutdownTimeout, func() {
+				wg.Done()
+			})
+		}()
+
+		localResolver := faasd.NewLocalResolver(path.Join(cfg.workingDir, "hosts"))
+		go localResolver.Start()
+
+		proxies := map[uint32]*faasd.Proxy{}
+		for _, svc := range services {
+			for _, port := range svc.Ports {
+
+				listenPort := port.Port
+				if _, ok := proxies[listenPort]; ok {
+					return fmt.Errorf("port %d already allocated", listenPort)
+				}
+
+				hostIP := "0.0.0.0"
+				if len(port.HostIP) > 0 {
+					hostIP = port.HostIP
+				}
+
+				upstream := fmt.Sprintf("%s:%d", svc.Name, port.TargetPort)
+				proxies[listenPort] = faasd.NewProxy(upstream, listenPort, hostIP, timeout, localResolver)
+			}
+		}
+
+		// track proxies for later cancellation when receiving sigint/term
+		for _, v := range proxies {
+			go v.Start()
+		}
+
+		wg.Wait()
 		return nil
-	} else if os.IsNotExist(err) {
-		log.Printf("Writing to: %q\n", filePath)
-		return os.WriteFile(filePath, []byte(fileContents), workingDirectoryPermission)
-	} else {
-		return err
-	}
+	},
 }
 
 // load the docker compose file and then parse it as supervisor Services
@@ -179,22 +140,28 @@ func loadServiceDefinition(cfg upConfig) ([]faasd.Service, error) {
 	return faasd.ParseCompose(serviceConfig)
 }
 
-// ConfigureUpFlags will define the flags for the `faasd up` command. The flag struct, configure, and
+// ConfigureUpFlags will define the flags for the `ukfaasd up` command. The flag struct, configure, and
 // parse are split like this to simplify testability.
-func configureUpFlags(flags *flag.FlagSet) {
+func configureUpFlags(flags *pflag.FlagSet) {
 	flags.StringP("file", "f", "docker-compose.yaml", "compose file specifying the faasd service configuration")
 }
 
 // ParseUpFlags will load the flag values into an upFlags object. Errors will be underlying
 // Get errors from the pflag library.
 func parseUpFlags(cmd *cobra.Command) (upConfig, error) {
-	parsed := upConfig{}
+	currDir, err := os.Getwd()
+	if err != nil {
+		currDir = ukfaaswd
+	}
+
+	parsed := upConfig{
+		workingDir: currDir,
+	}
 	path, err := cmd.Flags().GetString("file")
 	if err != nil {
 		return parsed, errors.Wrap(err, "can not parse compose file path flag")
 	}
 
 	parsed.composeFilePath = path
-	parsed.workingDir = ukfaaswd
 	return parsed, err
 }

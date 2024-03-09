@@ -12,7 +12,8 @@ publish: build hashgen
 
 .PHONY: build
 build:
-	CGO_ENABLED=0 GOOS=linux go build -mod=vendor -ldflags $(LDFLAGS) -o dist/ukfaasd ./cmd
+	rm -rf ./dist/*
+	CGO_ENABLED=0 GOOS=linux go build -mod=vendor -ldflags $(LDFLAGS) -o dist/ukfaasd-$(Version) ./cmd
 
 .PHONY: hashgen
 hashgen:

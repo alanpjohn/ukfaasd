@@ -1,71 +1,45 @@
 package main
 
 import (
-	"fmt"
-
+	"github.com/MakeNowJust/heredoc"
 	"github.com/spf13/cobra"
 )
 
-var (
-	// GitCommit Git Commit SHA
-	GitCommit string
-	// Version version of the CLI
-	Version string
-)
+// GetRootCmd generates the Root Command
+// for ukfaas
+func GetRootCmd() *cobra.Command {
+	var command = &cobra.Command{
+		Use:   "ukfaas SUBCOMMAND [FLAGS]",
+		Short: "Run ukfaas OpenFaaS provider daemon",
+		Long: heredoc.Docf(`
+			Run OpenFaas with the power of unikernels
+			with ukfaas, a OpenFaas Provider that can
+			run unikernels as functions for serverless
+			computing
 
-func init() {
-	rootCommand.AddCommand(versionCmd)
-	rootCommand.AddCommand(installCmd)
-	rootCommand.AddCommand(upCmd)
-	rootCommand.AddCommand(makeProviderCmd())
-	// rootCommand.AddCommand(collectCmd)
-}
-
-func RootCommand() *cobra.Command {
-	return rootCommand
-}
-
-// Execute ukfaasd
-func Execute(version, gitCommit string) error {
-
-	// Get Version and GitCommit values from main.go.
-	Version = version
-	GitCommit = gitCommit
-
-	if err := rootCommand.Execute(); err != nil {
-		return err
+			Version: %s
+			GitCommit: %s
+			Github: https://github.com/alanpjohn/ukfaas
+			
+			More about unikraft at https://unikraft.org
+		`, GetVersion(), GetGitCommit()),
 	}
-	return nil
+
+	command.AddCommand(versionCmd)
+	command.AddCommand(upCmd)
+
+	command.RunE = func(cmd *cobra.Command, args []string) error {
+		cmd.Help()
+
+		return nil
+	}
+
+	return command
 }
 
-var rootCommand = &cobra.Command{
-	Use:          "uk-faas",
-	Short:        "Start uk-faas",
-	Long:         `uk-faas is a OpenFaaS provider that runs functions as unikernels`,
-	RunE:         runRootCommand,
-	SilenceUsage: true,
-}
-
-func runRootCommand(cmd *cobra.Command, args []string) error {
-	cmd.Help()
-
-	return nil
-}
-
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Display version information.",
-	Run:   parseBaseCommand,
-}
-
-func parseBaseCommand(_ *cobra.Command, _ []string) {
-	printVersion()
-}
-
-func printVersion() {
-	fmt.Printf("uk-faas version: %s\tcommit: %s\n", GetVersion(), GetGitCommit())
-}
-
+// GetVersion gets the latest version
+// from the Version variable or sets
+// it to "dirty" if not set
 func GetVersion() string {
 	if len(Version) == 0 {
 		return "dirty"
@@ -73,7 +47,9 @@ func GetVersion() string {
 	return Version
 }
 
-// GetVersion get latest version
+// GetCommit gets the latest Git commit hash
+// from the GitCommit variable or sets
+// it to "dev" if not set
 func GetGitCommit() string {
 	if len(GitCommit) == 0 {
 		return "dev"
