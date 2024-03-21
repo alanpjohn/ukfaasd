@@ -57,14 +57,8 @@ type ServicePort struct {
 }
 
 type Mount struct {
-	// Src relative to the working directory for faasd
-	Src string
-
-	// Dest is the absolute path within the container
+	Src  string
 	Dest string
-
-	// ReadOnly when set to true indicates the mount will be set to "ro" instead of "rw"
-	ReadOnly bool
 }
 
 type Supervisor struct {
@@ -157,24 +151,17 @@ func (s *Supervisor) Start(svcs []Service) error {
 		mounts := []specs.Mount{}
 		if len(svc.Mounts) > 0 {
 			for _, mnt := range svc.Mounts {
-				var options = []string{"rbind"}
-				if mnt.ReadOnly {
-					options = append(options, "ro")
-				} else {
-					options = append(options, "rw")
-				}
-
 				mounts = append(mounts, specs.Mount{
 					Source:      mnt.Src,
 					Destination: mnt.Dest,
 					Type:        "bind",
-					Options:     options,
+					Options:     []string{"rbind", "rw"},
 				})
 
 				// Only create directories, not files.
 				// Some files don't have a suffix, such as secrets.
 				if len(path.Ext(mnt.Src)) == 0 &&
-					!strings.HasPrefix(mnt.Src, "/var/lib/faasd/secrets/") {
+					!strings.HasPrefix(mnt.Src, "/var/lib/ukfaasd/secrets/") {
 					// src is already prefixed with wd from an earlier step
 					src := mnt.Src
 					fmt.Printf("Creating local directory: %s\n", src)
@@ -331,7 +318,7 @@ func withOCIArgs(args []string) oci.SpecOpts {
 // pass to the supervisor client Start.
 //
 // The only anticipated error is a failure if the value mounts are not of type 	`bind`.
-func ParseCompose(config *compose.Config) ([]Service, error) {
+func ParseCompose(config *compose.Project) ([]Service, error) {
 	services := make([]Service, len(config.Services))
 	for idx, s := range config.Services {
 		// environment is a map[string]*string
@@ -355,10 +342,15 @@ func ParseCompose(config *compose.Config) ([]Service, error) {
 				return nil, errors.Errorf("unsupported volume mount type '%s' when parsing service '%s'", v.Type, s.Name)
 			}
 			mounts = append(mounts, Mount{
-				Src:      v.Source,
-				Dest:     v.Target,
-				ReadOnly: v.ReadOnly,
+				Src:  v.Source,
+				Dest: v.Target,
 			})
+		}
+
+		// patch
+		patchedDependsOn := []string{}
+		for name, _ := range s.DependsOn {
+			patchedDependsOn = append(patchedDependsOn, name)
 		}
 
 		services[idx] = Service{
@@ -369,7 +361,7 @@ func ParseCompose(config *compose.Config) ([]Service, error) {
 			Caps:      s.CapAdd,
 			Env:       env,
 			Mounts:    mounts,
-			DependsOn: s.DependsOn,
+			DependsOn: patchedDependsOn,
 			User:      s.User,
 			Ports:     convertPorts(s.Ports),
 		}
@@ -381,8 +373,11 @@ func ParseCompose(config *compose.Config) ([]Service, error) {
 func convertPorts(ports []compose.ServicePortConfig) []ServicePort {
 	servicePorts := []ServicePort{}
 	for _, p := range ports {
+		// Patch
+		patchedPort64, _ := strconv.ParseUint(p.Published, 10, 32)
+
 		servicePorts = append(servicePorts, ServicePort{
-			Port:       p.Published,
+			Port:       uint32(patchedPort64),
 			TargetPort: p.Target,
 			HostIP:     p.HostIP,
 		})
@@ -392,12 +387,12 @@ func convertPorts(ports []compose.ServicePortConfig) []ServicePort {
 }
 
 // LoadComposeFile is a helper method for loading a docker-compose file
-func LoadComposeFile(wd string, file string) (*compose.Config, error) {
+func LoadComposeFile(wd string, file string) (*compose.Project, error) {
 	return LoadComposeFileWithArch(wd, file, env.GetClientArch)
 }
 
 // LoadComposeFileWithArch is a helper method for loading a docker-compose file
-func LoadComposeFileWithArch(wd string, file string, archGetter ArchGetter) (*compose.Config, error) {
+func LoadComposeFileWithArch(wd string, file string, archGetter ArchGetter) (*compose.Project, error) {
 
 	file = path.Join(wd, file)
 	b, err := ioutil.ReadFile(file)

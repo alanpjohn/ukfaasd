@@ -12,3 +12,6 @@ nats/
 
 # Host File should be ignore
 hosts/
+
+# Kraft Machine Foler
+machinev1alpha1

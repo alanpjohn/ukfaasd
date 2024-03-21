@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/MakeNowJust/heredoc"
 	units "github.com/docker/go-units"
 	faasd "github.com/openfaas/faasd/pkg"
 	"github.com/pkg/errors"
@@ -44,6 +45,15 @@ func init() {
 var upCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Start OpenFaaS gateway",
+	Long: heredoc.Docf(`
+	ukfaasd requires OpenFaas components such 
+	as an OpenFaaS gateway, a promtheues instance
+	for monitoring and more additional ones. The
+	up command spawns components from the
+	docker-compose.yaml as containers.
+
+	More about OpenFaas: https://www.openfaas.com
+`),
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		cfg, err := parseUpFlags(cmd)
 		if err != nil {

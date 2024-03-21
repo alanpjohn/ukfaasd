@@ -1,12 +1,16 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/MakeNowJust/heredoc"
 	"github.com/spf13/cobra"
 )
 
 // GetRootCmd generates the Root Command
 // for ukfaas
+//
+// TODO: Refer kraftkit.sh/internal/cli/kraft to see how it manages subcommands and preRuns
 func GetRootCmd() *cobra.Command {
 	var command = &cobra.Command{
 		Use:   "ukfaas SUBCOMMAND [FLAGS]",
@@ -27,6 +31,12 @@ func GetRootCmd() *cobra.Command {
 
 	command.AddCommand(versionCmd)
 	command.AddCommand(upCmd)
+
+	command.AddCommand(testCmd) // TODO: Remove test command
+
+	command.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		fmt.Printf("uk-faas version: %s\tcommit: %s\n", GetVersion(), GetGitCommit())
+	}
 
 	command.RunE = func(cmd *cobra.Command, args []string) error {
 		cmd.Help()
