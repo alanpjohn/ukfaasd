@@ -9,6 +9,7 @@ import (
 	"github.com/alanpjohn/ukfaas/pkg/machine"
 	"github.com/alanpjohn/ukfaas/pkg/manager"
 	"github.com/alanpjohn/ukfaas/pkg/network"
+	"github.com/alanpjohn/ukfaas/pkg/store"
 	"github.com/openfaas/faas-provider/types"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -23,16 +24,25 @@ var testCmd = &cobra.Command{
 	Short: "Used for Testing",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
-		mService, err := machine.GetMachineServiceBeta(ctx, "/run/containerd/containerd.sock", "default")
+
+		inmemory, err := store.NewStorage(ctx)
+		if err != nil {
+			return errors.Wrap(err, "Storage initialisation failed")
+		}
+
+		mService, err := machine.GetMachineService(ctx)
 		if err != nil {
 			return errors.Wrap(err, "Machine Service initialisation failed")
 		}
-		nService, err := network.GetIPVSNetworkService()
+		nService, err := network.GetNetworkService(ctx)
 		if err != nil {
 			return errors.Wrap(err, "Network Service initialisation failed")
 		}
 
-		manager := manager.InitialiseManagerV1(ctx, mService, nService)
+		manager, err := manager.InitialiseManagerV1(ctx, mService, nService, inmemory)
+		if err != nil {
+			return errors.Wrap(err, "Manager initialisation failed")
+		}
 
 		err = manager.Deploy(types.FunctionDeployment{
 			Service: "test",

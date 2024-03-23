@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/MakeNowJust/heredoc"
 	"github.com/spf13/cobra"
 )
@@ -32,11 +30,8 @@ func GetRootCmd() *cobra.Command {
 	command.AddCommand(versionCmd)
 	command.AddCommand(upCmd)
 
+	command.AddCommand(GetProviderCmd())
 	command.AddCommand(testCmd) // TODO: Remove test command
-
-	command.PersistentPreRun = func(cmd *cobra.Command, args []string) {
-		fmt.Printf("uk-faas version: %s\tcommit: %s\n", GetVersion(), GetGitCommit())
-	}
 
 	command.RunE = func(cmd *cobra.Command, args []string) error {
 		cmd.Help()

@@ -7,7 +7,6 @@ import (
 	"net/url"
 
 	"github.com/alanpjohn/ukfaas/pkg/api"
-	"github.com/alanpjohn/ukfaas/pkg/store"
 	"github.com/alanpjohn/ukfaas/pkg/util"
 	faas "github.com/openfaas/faas-provider/types"
 	"github.com/pkg/errors"
@@ -19,18 +18,21 @@ type managerV1 struct {
 	fstore   api.FunctionStore
 }
 
-func InitialiseManagerV1(ctx context.Context, m api.MachineService, n api.NetworkService) api.Manager {
-	s := store.GetInMemoryFnStore()
+func InitialiseManagerV1(ctx context.Context, m api.MachineService, n api.NetworkService, s api.Storage) (api.Manager, error) {
+	f, err := s.GetFunctionStore(ctx)
+	if err != nil {
+		return nil, err
+	}
 	newManager := &managerV1{
 		mService: m,
 		nService: n,
-		fstore:   s,
+		fstore:   f,
 	}
 
 	go newManager.listenMachineEvents(ctx)
 	go newManager.listenNetworkEvents(ctx)
 
-	return newManager
+	return newManager, nil
 }
 
 func (manager managerV1) listenMachineEvents(ctx context.Context) {

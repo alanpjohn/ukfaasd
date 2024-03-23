@@ -1,4 +1,4 @@
-package machine
+package lite
 
 import (
 	"context"
@@ -8,10 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	zip "api.zip"
 	"github.com/alanpjohn/ukfaas/pkg"
 	"github.com/alanpjohn/ukfaas/pkg/api"
-	"github.com/alanpjohn/ukfaas/pkg/store"
 	"github.com/pkg/errors"
 	"github.com/vishvananda/netlink"
 	corev1 "k8s.io/api/core/v1"
@@ -21,15 +19,12 @@ import (
 	machineapi "kraftkit.sh/api/machine/v1alpha1"
 	networkapi "kraftkit.sh/api/network/v1alpha1"
 	volumeapi "kraftkit.sh/api/volume/v1alpha1"
-	"kraftkit.sh/config"
 	"kraftkit.sh/initrd"
 	machinename "kraftkit.sh/machine/name"
-	"kraftkit.sh/machine/network/bridge"
 	mplatform "kraftkit.sh/machine/platform"
 	"kraftkit.sh/oci"
 	"kraftkit.sh/pack"
 	"kraftkit.sh/packmanager"
-	kraftStore "kraftkit.sh/store"
 	"kraftkit.sh/unikraft"
 	"kraftkit.sh/unikraft/target"
 )
@@ -46,7 +41,7 @@ func RegisterPackageManager(ctx context.Context, addr string, namespace string) 
 	}
 }
 
-type machineServiceBeta struct {
+type machineServiceLite struct {
 	notify chan<- api.MachineEvent
 	// taskQueue chan MachineTask
 	mStore             api.MachineStore
@@ -56,75 +51,25 @@ type machineServiceBeta struct {
 	// lock      sync.Mutex
 }
 
-func GetMachineServiceBeta(ctx context.Context, containerdAddr string, defaultNamespace string) (api.MachineService, error) {
-	err := packmanager.InitUmbrellaManager(ctx, []func(*packmanager.UmbrellaManager) error{
-		RegisterPackageManager(ctx, containerdAddr, defaultNamespace),
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "pack manager register failed")
-	}
-	pms, err := packmanager.PackageManagers()
-	if err != nil {
-		return nil, errors.Wrap(err, "pack managers retrieval failed")
-	}
-	pm, exists := pms[oci.OCIFormat]
+func GetMachineServiceLite(ctx context.Context, opts ...any) (api.MachineService, error) {
+	ms := &machineServiceLite{}
 
-	if !exists {
-		return nil, fmt.Errorf("cannot retirve oci pack manager")
-	}
-
-	supportedPlatforms := []mplatform.Platform{mplatform.PlatformFirecracker, mplatform.PlatformKVM}
-
-	machineControllers := make(map[mplatform.Platform]machineapi.MachineService)
-	for _, platform := range supportedPlatforms {
-		machineStrategy, ok := mplatform.Strategies()[platform]
+	for _, val := range opts {
+		opt, ok := val.(MachineServiceLiteOption)
 		if !ok {
-			return nil, fmt.Errorf("platform %s not supported", platform)
+			return ms, fmt.Errorf("invalid option provided")
 		}
-		machineController, err := machineStrategy.NewMachineV1alpha1(ctx)
+
+		err := opt(ctx, ms)
 		if err != nil {
-			return nil, err
+			return ms, errors.Wrap(err, "error applying opt")
 		}
-		machineControllers[platform] = machineController
 	}
 
-	service, err := bridge.NewNetworkServiceV1alpha1(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	embeddedStore, err := kraftStore.NewEmbeddedStore[networkapi.NetworkSpec, networkapi.NetworkStatus](
-		filepath.Join(
-			config.G[config.KraftKit](ctx).RuntimeDir,
-			"networkv1alpha1",
-		),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	networkService, err := networkapi.NewNetworkServiceHandler(
-		ctx,
-		service,
-		zip.WithStore[networkapi.NetworkSpec, networkapi.NetworkStatus](embeddedStore, zip.StoreRehydrationSpecNil),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	mStore, err := store.GetInMemoryMachineStore(ctx)
-
-	ms := &machineServiceBeta{
-		pm:                 pm,
-		networks:           networkService,
-		mStore:             mStore,
-		machineControllers: machineControllers,
-	}
-
-	return ms, err
+	return ms, nil
 }
 
-func (ms *machineServiceBeta) PullImage(ctx context.Context, imageRef string) (target.Target, error) {
+func (ms *machineServiceLite) PullImage(ctx context.Context, imageRef string) (target.Target, error) {
 	log.Printf("Looking for %s", imageRef)
 	qopts := []packmanager.QueryOption{
 		packmanager.WithTypes(unikraft.ComponentTypeApp),
@@ -188,13 +133,13 @@ func (ms *machineServiceBeta) PullImage(ctx context.Context, imageRef string) (t
 }
 
 // Notify implements api.MachineService.
-func (ms *machineServiceBeta) Notify(ctx context.Context, events chan<- api.MachineEvent) error {
+func (ms *machineServiceLite) Notify(ctx context.Context, events chan<- api.MachineEvent) error {
 	ms.notify = events
 	return nil
 }
 
 // Deploy implements api.MachineService.
-func (ms *machineServiceBeta) Deploy(ctx context.Context, fn api.Function) error {
+func (ms *machineServiceLite) Deploy(ctx context.Context, fn api.Function) error {
 	// m.notify <- fn.Deployment.Service
 	log.Printf("machine deployment request for %s", fn.Deployment.Service)
 	m, err := ms.machineFromFunction(ctx, fn)
@@ -221,7 +166,7 @@ func (ms *machineServiceBeta) Deploy(ctx context.Context, fn api.Function) error
 }
 
 // Scale implements api.MachineService.
-func (ms *machineServiceBeta) Scale(ctx context.Context, fn api.Function, replicas uint) error {
+func (ms *machineServiceLite) Scale(ctx context.Context, fn api.Function, replicas uint) error {
 	service := fn.Deployment.Service
 	got, err := ms.mStore.ActiveReplicas(service)
 	if err != nil {
@@ -305,16 +250,16 @@ func (ms *machineServiceBeta) Scale(ctx context.Context, fn api.Function, replic
 }
 
 // Delete implements api.MachineService.
-func (ms *machineServiceBeta) Delete(ctx context.Context, fn api.Function) error {
+func (ms *machineServiceLite) Delete(ctx context.Context, fn api.Function) error {
 	return ms.Scale(ctx, fn, 0)
 }
 
 // Replicas implements api.MachineService.
-func (ms *machineServiceBeta) Replicas(_ context.Context, service string) (uint, error) {
+func (ms *machineServiceLite) Replicas(_ context.Context, service string) (uint, error) {
 	return ms.mStore.ActiveReplicas(service)
 }
 
-func (ms *machineServiceBeta) machineFromFunction(ctx context.Context, fn api.Function) (machineapi.Machine, error) {
+func (ms *machineServiceLite) machineFromFunction(ctx context.Context, fn api.Function) (machineapi.Machine, error) {
 	var (
 		limitCpu    resource.Quantity = resource.MustParse("1")
 		limitMemory resource.Quantity = resource.MustParse("256Mi")
@@ -421,7 +366,7 @@ func (ms *machineServiceBeta) machineFromFunction(ctx context.Context, fn api.Fu
 	return *machine, nil
 }
 
-func (ms *machineServiceBeta) create(ctx context.Context, machine *machineapi.Machine) (*machineapi.Machine, error) {
+func (ms *machineServiceLite) create(ctx context.Context, machine *machineapi.Machine) (*machineapi.Machine, error) {
 	// attach Network Device
 	// Get Machine Service
 	networkSpec, err := ms.attachNetworkDevice(ctx, machine)
@@ -453,7 +398,7 @@ func (ms *machineServiceBeta) create(ctx context.Context, machine *machineapi.Ma
 	return machine, nil
 }
 
-func (ms *machineServiceBeta) destroy(ctx context.Context, machine *machineapi.Machine) (*machineapi.Machine, error) {
+func (ms *machineServiceLite) destroy(ctx context.Context, machine *machineapi.Machine) (*machineapi.Machine, error) {
 
 	platform := machine.Spec.Platform
 	machineID := machine.GetUID()
@@ -499,7 +444,7 @@ func (ms *machineServiceBeta) destroy(ctx context.Context, machine *machineapi.M
 	return oldMachine, nil
 }
 
-func (ms *machineServiceBeta) attachNetworkDevice(ctx context.Context, machine *machineapi.Machine) (networkapi.NetworkSpec, error) {
+func (ms *machineServiceLite) attachNetworkDevice(ctx context.Context, machine *machineapi.Machine) (networkapi.NetworkSpec, error) {
 	log.Printf("network device create called on %s", machine.GetUID())
 	networkName := "openfaas0"
 	found, err := ms.networks.Get(ctx, &networkapi.Network{
@@ -545,7 +490,7 @@ func (ms *machineServiceBeta) attachNetworkDevice(ctx context.Context, machine *
 	return found.Spec, nil
 }
 
-func (ms *machineServiceBeta) deleteNetworkDevice(_ context.Context, machine *machineapi.Machine) (*machineapi.Machine, error) {
+func (ms *machineServiceLite) deleteNetworkDevice(_ context.Context, machine *machineapi.Machine) (*machineapi.Machine, error) {
 	iface := machine.Spec.Networks[0]
 	interfaceName := iface.Interfaces[0].Spec.IfName
 	log.Printf("network device delete called on %s for %s", interfaceName, machine.GetUID())

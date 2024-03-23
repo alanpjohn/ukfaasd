@@ -1,9 +1,17 @@
 package api
 
 import (
+	"context"
+
 	"k8s.io/apimachinery/pkg/types"
 	"kraftkit.sh/api/machine/v1alpha1"
 )
+
+type Storage interface {
+	GetMachineStore(context.Context) (MachineStore, error)
+	GetNetworkStore(context.Context) (NetworkStore, error)
+	GetFunctionStore(context.Context) (FunctionStore, error)
+}
 
 type FunctionStore interface {
 	ListFunctions() ([]Function, error)

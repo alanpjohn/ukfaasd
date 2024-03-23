@@ -1,4 +1,4 @@
-package network
+package ipvs
 
 import (
 	"context"
@@ -12,7 +12,6 @@ import (
 
 	"github.com/alanpjohn/ukfaas/pkg"
 	"github.com/alanpjohn/ukfaas/pkg/api"
-	"github.com/alanpjohn/ukfaas/pkg/store"
 	"github.com/cloudflare/ipvs"
 	"github.com/cloudflare/ipvs/netmask"
 	"github.com/erikh/ping"
@@ -28,32 +27,37 @@ type ipvsNetworkService struct {
 	notify       chan<- api.NetworkEvent
 }
 
-func GetIPVSNetworkService() (api.NetworkService, error) {
+func GetIPVSNetworkService(ctx context.Context, opts ...any) (api.NetworkService, error) {
 	c, err := ipvs.New()
 	if err != nil {
 		return &ipvsNetworkService{}, err
 	}
 
-	store := store.GetInMemoryNtwkStore()
-
-	subnet := &net.IPNet{
-		IP:   net.ParseIP("10.63.0.1"),
-		Mask: net.IPv4Mask(255, 255, 0, 0),
+	ins := &ipvsNetworkService{
+		ipvsClient:   c,
+		allocatedIPs: sync.Map{},
 	}
 
-	return &ipvsNetworkService{
-		ipvsClient:   c,
-		endpoints:    store,
-		allocatedIPs: sync.Map{},
-		subnet:       subnet,
-	}, nil
+	for _, val := range opts {
+		opt, ok := val.(ipvsNetworkServiceOption)
+		if !ok {
+			return nil, fmt.Errorf("invalid option provided")
+		}
+
+		err := opt(ctx, ins)
+		if err != nil {
+			return nil, errors.Wrap(err, "error applying opt")
+		}
+	}
+
+	return ins, nil
 }
 
 // Resolve implements api.NetworkService.
 func (i *ipvsNetworkService) Resolve(_ context.Context, service string) (string, error) {
 	endpoint, err := i.endpoints.GetEndpoint(service)
 	log.Printf("got %s with error %v", endpoint, err)
-	return endpoint, err
+	return fmt.Sprintf("%s:%v", endpoint, pkg.WatchdogPort), err
 }
 
 // AddServiceEndpoint implements api.NetworkService.

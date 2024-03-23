@@ -1,4 +1,4 @@
-package store
+package maps
 
 import (
 	"context"
@@ -11,89 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"kraftkit.sh/api/machine/v1alpha1"
 )
-
-type mapStore struct {
-	functions sync.Map
-	endpoints sync.Map
-}
-
-func GetInMemoryFnStore() api.FunctionStore {
-	return &mapStore{
-		functions: sync.Map{},
-		endpoints: sync.Map{},
-	}
-}
-
-func GetInMemoryNtwkStore() api.NetworkStore {
-	return &mapStore{
-		functions: sync.Map{},
-		endpoints: sync.Map{},
-	}
-}
-
-// GetEndpoint implements api.NetworkStore.
-func (m *mapStore) GetEndpoint(service string) (string, error) {
-	val, exists := m.endpoints.Load(service)
-	if !exists {
-		return "", fmt.Errorf("not found")
-	}
-	ip, ok := val.(string)
-	if !ok {
-		return "", fmt.Errorf("found malformed IP")
-	}
-	return ip, nil
-}
-
-// GetFunction implements api.FunctionStore.
-func (m *mapStore) GetFunction(service string) (api.Function, error) {
-	val, exists := m.functions.Load(service)
-	if !exists {
-		return api.Function{}, fmt.Errorf("not found")
-	}
-	fn, ok := val.(api.Function)
-	if !ok {
-		return api.Function{}, fmt.Errorf("found malformed function")
-	}
-	return fn, nil
-}
-
-// PutEndpoint implements api.NetworkStore.
-func (m *mapStore) PutEndpoint(service string, IP string) error {
-	m.endpoints.Store(service, IP)
-	return nil
-}
-
-// PutFunction implements api.FunctionStore.
-func (m *mapStore) PutFunction(service string, fn api.Function) error {
-	m.functions.Store(service, fn)
-	return nil
-}
-
-// ListFunctions implements api.FunctionStore.
-func (m *mapStore) ListFunctions() ([]api.Function, error) {
-	var funcs []api.Function = []api.Function{}
-	m.functions.Range(func(key, value any) bool {
-		fn, ok := value.(api.Function)
-		if !ok {
-			return true
-		}
-		funcs = append(funcs, fn)
-		return true
-	})
-	return funcs, nil
-}
-
-// DeleteFunction implements api.FunctionStore.
-func (m *mapStore) DeleteFunction(service string) error {
-	m.functions.Delete(service)
-	return nil
-}
-
-// DeleteEndpoint implements api.NetworkStore.
-func (m *mapStore) DeleteEndpoint(service string) error {
-	m.endpoints.Delete(service)
-	return nil
-}
 
 type machineStore struct {
 	serviceCount sync.Map // string -> uint
@@ -204,7 +121,7 @@ func (m *machineStore) PutMachine(service string, machine v1alpha1.Machine) erro
 	return nil
 }
 
-func GetInMemoryMachineStore(_ context.Context) (api.MachineStore, error) {
+func (m MapStoreRepository) GetMachineStore(_ context.Context) (api.MachineStore, error) {
 	return &machineStore{
 		machines:     sync.Map{},
 		serviceCount: sync.Map{},
