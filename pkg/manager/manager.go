@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/alanpjohn/ukfaas/pkg/api"
 	"github.com/alanpjohn/ukfaas/pkg/util"
@@ -35,7 +37,7 @@ func InitialiseManagerV1(ctx context.Context, m api.MachineService, n api.Networ
 	return newManager, nil
 }
 
-func (manager managerV1) listenMachineEvents(ctx context.Context) {
+func (manager *managerV1) listenMachineEvents(ctx context.Context) {
 	mEvents := make(chan api.MachineEvent)
 	manager.mService.Notify(ctx, mEvents)
 	log.Printf("listening for machine events")
@@ -70,7 +72,7 @@ loop:
 	}
 }
 
-func (manager managerV1) listenNetworkEvents(ctx context.Context) {
+func (manager *managerV1) listenNetworkEvents(ctx context.Context) {
 	nEvents := make(chan api.NetworkEvent)
 	manager.nService.Notify(ctx, nEvents)
 	log.Printf("listening for network events")
@@ -149,12 +151,33 @@ func (manager *managerV1) Deploy(req faas.FunctionDeployment) error {
 }
 
 func (manager *managerV1) Invoke(service string) (url.URL, error) {
-	ip, err := manager.nService.Resolve(context.TODO(), service)
+	ctx := context.Background()
+	ip, err := manager.nService.Resolve(ctx, service)
 	if err != nil {
 		return url.URL{}, err
 	}
-	endpoint, err := url.Parse(ip)
-	return *endpoint, err
+	ipaddr := strings.Split(ip, ":")[0]
+	port := strings.Split(ip, ":")[1]
+	endpoint, err := url.Parse(fmt.Sprintf("http://%s:%s", ipaddr, port))
+	if err != nil {
+		log.Printf("[Invoke] Error parsing IP: %s", err)
+		return url.URL{}, err
+	}
+
+	if replicas, err := manager.mService.Replicas(ctx, service); err == nil && replicas == 0 {
+		fn, err := manager.fstore.GetFunction(service)
+		if err != nil {
+			return url.URL{}, errors.Wrapf(err, "function details not found: %s", service)
+		}
+		manager.mService.Scale(ctx, fn, 1)
+
+		_, err = http.Get(endpoint.String())
+		for err != nil {
+			_, err = http.Get(endpoint.String())
+		}
+	}
+
+	return *endpoint, nil
 }
 
 func (manager *managerV1) List() ([]faas.FunctionStatus, error) {
@@ -163,7 +186,14 @@ func (manager *managerV1) List() ([]faas.FunctionStatus, error) {
 	if err != nil {
 		return res, errors.Wrap(err, "cannot retrieve functions")
 	}
+
+	ctx := context.Background()
 	for _, fn := range fns {
+		var replicas uint
+		if replicas, err = manager.mService.Replicas(ctx, fn.Name()); err != nil {
+			replicas = 0
+		}
+
 		res = append(res, faas.FunctionStatus{
 			Name:                   fn.Name(),
 			Image:                  fn.Deployment.Service,
@@ -177,6 +207,8 @@ func (manager *managerV1) List() ([]faas.FunctionStatus, error) {
 			ReadOnlyRootFilesystem: fn.Deployment.ReadOnlyRootFilesystem,
 			Limits:                 fn.Deployment.Limits,
 			Requests:               fn.Deployment.Requests,
+			AvailableReplicas:      uint64(replicas),
+			Replicas:               uint64(replicas),
 		})
 	}
 

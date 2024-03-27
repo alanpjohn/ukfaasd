@@ -38,11 +38,7 @@ func (m *machineStore) DeleteMachine(service string, machineID types.UID) error 
 	if exists {
 		count := val.(uint)
 		log.Printf("found %d machines for service %s", count, service)
-		if count == 1 {
-			m.serviceCount.Delete(service)
-		} else {
-			m.serviceCount.Store(service, count-1)
-		}
+		m.serviceCount.Store(service, count-1)
 	}
 	m.machines.Delete(machineID)
 	return nil
@@ -110,7 +106,7 @@ func (m *machineStore) PutMachine(service string, machine v1alpha1.Machine) erro
 		count := val.(uint)
 		if notActive && wasActive {
 			m.serviceCount.Store(service, count-1)
-		} else {
+		} else if !notActive {
 			m.serviceCount.Store(service, count+1)
 		}
 	} else {

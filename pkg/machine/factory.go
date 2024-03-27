@@ -24,7 +24,7 @@ func GetMachineService(ctx context.Context) (api.MachineService, error) {
 		lite.WithKraftNetworkService(),
 		lite.WithPackmanager(
 			containerdAddr,
-			pkg.DefaultContainerdNamespace,
+			pkg.DefaultFunctionNamespace,
 		),
 		lite.WithStorage(storage),
 	)
