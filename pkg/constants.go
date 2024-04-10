@@ -18,6 +18,7 @@ const (
 	MachineDirectory = "/tmp/kraftkit/machines"
 
 	ServiceIPSubnet = "10.63.0.0/16"
+	BridgeSubnet    = "10.62.0.0/16"
 
 	WatchdogPort = 8080
 	GatewayPort  = 80

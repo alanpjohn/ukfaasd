@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,18 @@ type ipvsNetworkService struct {
 }
 
 func GetIPVSNetworkService(ctx context.Context, opts ...any) (api.NetworkService, error) {
-	c, err := ipvs.New()
+	c, initErr := ipvs.New()
+
+	var err error
+	if initErr != nil {
+		ipvsCmd := exec.Command("ipvsadm")
+		err = ipvsCmd.Run()
+		if err != nil {
+			return nil, errors.Wrap(err, "error initialising IPVS kernel module")
+		}
+		c, err = ipvs.New()
+	}
+
 	if err != nil {
 		return &ipvsNetworkService{}, err
 	}

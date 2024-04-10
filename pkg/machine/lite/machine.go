@@ -66,6 +66,15 @@ func GetMachineServiceLite(ctx context.Context, opts ...any) (api.MachineService
 		}
 	}
 
+	if ms.networks != nil {
+		err := initNetworkBridge(ctx, ms.networks)
+		if err != nil {
+			return nil, errors.Wrap(err, "error setting up openfaas bridge network")
+		}
+	} else {
+		return nil, fmt.Errorf("error: no network service created")
+	}
+
 	return ms, nil
 }
 
@@ -251,7 +260,12 @@ func (ms *machineServiceLite) Scale(ctx context.Context, fn api.Function, replic
 
 // Delete implements api.MachineService.
 func (ms *machineServiceLite) Delete(ctx context.Context, fn api.Function) error {
-	return ms.Scale(ctx, fn, 0)
+	err := ms.Scale(ctx, fn, 0)
+	if err != nil {
+		return err
+	}
+
+	return err
 }
 
 // Replicas implements api.MachineService.
@@ -394,7 +408,6 @@ func (ms *machineServiceLite) create(ctx context.Context, machine *machineapi.Ma
 		return machine, errors.Wrapf(err, "machine start for %s failed", platform)
 	}
 	log.Printf("machine started: %s", machine.GetUID())
-	log.Printf("machine platform config: %v", machine.Status.PlatformConfig)
 	return machine, nil
 }
 
@@ -404,7 +417,6 @@ func (ms *machineServiceLite) destroy(ctx context.Context, machine *machineapi.M
 	machineID := machine.GetUID()
 
 	log.Printf("machine destroy called on %s", machine.GetUID())
-	log.Printf("machine platform config: %v", machine.Status.PlatformConfig)
 
 	machineStrategy, ok := mplatform.Strategies()[mplatform.PlatformByName(platform)]
 	if !ok {

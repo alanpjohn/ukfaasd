@@ -47,6 +47,12 @@ var testCmd = &cobra.Command{
 		err = manager.Deploy(types.FunctionDeployment{
 			Service: "test",
 			Image:   args[0],
+			Requests: &types.FunctionResources{
+				Memory: args[1],
+			},
+			Limits: &types.FunctionResources{
+				Memory: args[1],
+			},
 		})
 		if err != nil {
 			return err
